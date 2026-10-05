@@ -92,6 +92,10 @@ class WNDCLASSEXW(ctypes.Structure):
         ("hIconSm", wintypes.HICON)
     ]
 
+# Set explicit 64-bit argument and return types for DefWindowProcW
+user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+user32.DefWindowProcW.restype = wintypes.LPARAM
+
 # Global termination flag for thread-safe unified teardown
 RUNNING_FLAG = threading.Event()
 RUNNING_FLAG.set()

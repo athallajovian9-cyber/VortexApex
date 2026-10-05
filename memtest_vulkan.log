@@ -1,0 +1,35 @@
+Tester console logging started at 2026-10-05T04:10:18.084705Z
+
+1: Bus=0x07:00 DevId=0x1F0A   4GB NVIDIA GeForce GTX 1650
+Tester worker logging started at 2026-10-05T04:10:18.274571Z
+Standard 5-minute test of 1: Bus=0x07:00 DevId=0x1F0A   4GB NVIDIA GeForce GTX 1650
+      1 iteration. Passed  0.0371 seconds  written:    1.4GB 133.6GB/sec        checked:    2.8GB 102.7GB/sec
+     35 iteration. Passed  1.0052 seconds  written:   46.8GB 164.5GB/sec        checked:   93.5GB 129.7GB/sec
+    193 iteration. Passed  5.0799 seconds  written:  217.2GB 154.5GB/sec        checked:  434.5GB 118.3GB/sec
+   1147 iteration. Passed 30.0254 seconds  written: 1311.8GB 151.9GB/sec        checked: 2623.5GB 122.7GB/sec
+   2056 iteration. Passed 30.0320 seconds  written: 1249.9GB 142.7GB/sec        checked: 2499.8GB 117.5GB/sec
+   2947 iteration. Passed 30.0295 seconds  written: 1225.1GB 141.4GB/sec        checked: 2450.2GB 114.7GB/sec
+   3898 iteration. Passed 30.0192 seconds  written: 1307.6GB 151.0GB/sec        checked: 2615.2GB 122.5GB/sec
+   4912 iteration. Passed 30.0228 seconds  written: 1394.2GB 161.2GB/sec        checked: 2788.5GB 130.5GB/sec
+Tester console logging started at 2026-10-05T04:13:23.278333Z
+
+1: Bus=0x07:00 DevId=0x1F0A   4GB NVIDIA GeForce GTX 1650
+   5870 iteration. Passed 30.1142 seconds  written: 1317.2GB 151.2GB/sec        checked: 2634.5GB 123.1GB/sec
+Tester worker logging started at 2026-10-05T04:13:23.435357Z
+Standard 5-minute test of 1: Bus=0x07:00 DevId=0x1F0A   4GB NVIDIA GeForce GTX 1650
+      1 iteration. Passed  0.6795 seconds  written:    1.4GB   5.5GB/sec        checked:    2.8GB   6.4GB/sec
+      3 iteration. Passed  1.2411 seconds  written:    2.8GB   5.7GB/sec        checked:    5.5GB   7.3GB/sec
+     12 iteration. Passed  5.5099 seconds  written:   12.4GB   5.9GB/sec        checked:   24.8GB   7.3GB/sec
+   5928 iteration. Passed 30.4730 seconds  written:   79.8GB  11.1GB/sec        checked:  159.5GB   6.8GB/sec
+     60 iteration. Passed 30.6014 seconds  written:   66.0GB   5.7GB/sec        checked:  132.0GB   7.0GB/sec
+   5983 iteration. Passed 30.4754 seconds  written:   75.6GB  10.5GB/sec        checked:  151.2GB   6.5GB/sec
+    107 iteration. Passed 30.0122 seconds  written:   64.6GB   5.6GB/sec        checked:  129.2GB   7.0GB/sec
+   6038 iteration. Passed 30.4681 seconds  written:   75.6GB  10.5GB/sec        checked:  151.2GB   6.5GB/sec
+    173 iteration. Passed 30.0837 seconds  written:   90.8GB   7.8GB/sec        checked:  181.5GB   9.8GB/sec
+    237 iteration. Passed 30.3914 seconds  written:   88.0GB   7.6GB/sec        checked:  176.0GB   9.4GB/sec
+Standard 5-minute test PASSed! Just press Ctrl+C unless you plan long test run.
+Extended endless test started; testing more than 2 hours is usually unneeded
+use Ctrl+C to stop it when you decide it's enough
+    286 iteration. Passed 30.2643 seconds  written:   67.4GB   5.8GB/sec        checked:  134.8GB   7.2GB/sec
+   6150 iteration. Passed 30.0830 seconds  written:   77.0GB  10.8GB/sec        checked:  154.0GB   6.7GB/sec
+   6731 iteration. Passed 30.0035 seconds  written:  798.9GB  98.0GB/sec        checked: 1597.8GB  73.1GB/sec

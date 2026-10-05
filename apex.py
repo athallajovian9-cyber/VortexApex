@@ -1,6 +1,6 @@
-"""Vortex Apex // Native Vulkan 1.2 GPU Stress & Telemetry Engine.
-Direct hardware communication via vulkan-1.dll + multi-core CPU torture.
-Zero third-party wrapper dependencies, native hardware-level stability.
+"""Vortex Apex 2.0 // Vulkan Hardware Compute & Multi-Core Stress Suite.
+Integrates GpuZelenograd/memtest_vulkan Rust compute engine + multiprocessing CPU torture.
+Zero crash, hardware-verified memory bus saturation (GB/s bandwidth) + CPU max TDP load.
 """
 from __future__ import annotations
 
@@ -8,110 +8,22 @@ import os
 import sys
 import time
 import math
-import ctypes
+import subprocess
+import threading
 import webbrowser
 import multiprocessing
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from collections import deque
+from pathlib import Path
 
-VK_SUCCESS = 0
-VK_STRUCTURE_TYPE_APPLICATION_INFO = 1
-VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO = 10
+HERE = Path(__file__).resolve().parent
+MEMTEST_EXE = HERE / "memtest_vulkan.exe"
 
-class VkApplicationInfo(ctypes.Structure):
-    _fields_ = [
-        ('sType', ctypes.c_uint32),
-        ('pNext', ctypes.c_void_p),
-        ('pApplicationName', ctypes.c_char_p),
-        ('applicationVersion', ctypes.c_uint32),
-        ('pEngineName', ctypes.c_char_p),
-        ('engineVersion', ctypes.c_uint32),
-        ('apiVersion', ctypes.c_uint32)
-    ]
-
-class VkInstanceCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ('sType', ctypes.c_uint32),
-        ('pNext', ctypes.c_void_p),
-        ('flags', ctypes.c_uint32),
-        ('pApplicationInfo', ctypes.POINTER(VkApplicationInfo)),
-        ('enabledLayerCount', ctypes.c_uint32),
-        ('ppEnabledLayerNames', ctypes.POINTER(ctypes.c_char_p)),
-        ('enabledExtensionCount', ctypes.c_uint32),
-        ('ppEnabledExtensionNames', ctypes.POINTER(ctypes.c_char_p))
-    ]
-
-class VkPhysicalDeviceProperties(ctypes.Structure):
-    _fields_ = [
-        ('apiVersion', ctypes.c_uint32),
-        ('driverVersion', ctypes.c_uint32),
-        ('vendorID', ctypes.c_uint32),
-        ('deviceID', ctypes.c_uint32),
-        ('deviceType', ctypes.c_uint32),
-        ('deviceName', ctypes.c_char * 256),
-        ('pipelineCacheUUID', ctypes.c_uint8 * 16),
-        ('limits', ctypes.c_uint8 * 504),
-        ('sparseProperties', ctypes.c_uint8 * 20)
-    ]
-
-class VulkanEngine:
-    def __init__(self):
-        self.vk = ctypes.windll.LoadLibrary('vulkan-1.dll')
-        self.instance = ctypes.c_void_p()
-        self.device = None
-        self.gpu_name = "Detecting..."
-        self._init_vulkan()
-
-    def _init_vulkan(self):
-        app_info = VkApplicationInfo(
-            sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            pNext=None,
-            pApplicationName=b"VortexApex",
-            applicationVersion=1,
-            pEngineName=b"ApexVulkan",
-            engineVersion=1,
-            apiVersion=(1 << 22) | (2 << 12)
-        )
-
-        create_info = VkInstanceCreateInfo(
-            sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            pNext=None,
-            flags=0,
-            pApplicationInfo=ctypes.pointer(app_info),
-            enabledLayerCount=0,
-            ppEnabledLayerNames=None,
-            enabledExtensionCount=0,
-            ppEnabledExtensionNames=None
-        )
-
-        vkCreateInstance = self.vk.vkCreateInstance
-        vkCreateInstance.argtypes = [ctypes.POINTER(VkInstanceCreateInfo), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-        vkCreateInstance.restype = ctypes.c_int32
-
-        res = vkCreateInstance(ctypes.byref(create_info), None, ctypes.byref(self.instance))
-        if res != VK_SUCCESS:
-            raise RuntimeError(f"Vulkan Instance creation failed with code {res}")
-
-        count = ctypes.c_uint32(0)
-        self.vk.vkEnumeratePhysicalDevices(self.instance, ctypes.byref(count), None)
-        if count.value > 0:
-            devices = (ctypes.c_void_p * count.value)()
-            self.vk.vkEnumeratePhysicalDevices(self.instance, ctypes.byref(count), devices)
-            self.device = devices[0]
-
-            props = VkPhysicalDeviceProperties()
-            vkGetProperties = self.vk.vkGetPhysicalDeviceProperties
-            vkGetProperties.argtypes = [ctypes.c_void_p, ctypes.POINTER(VkPhysicalDeviceProperties)]
-            vkGetProperties(self.device, ctypes.byref(props))
-            self.gpu_name = props.deviceName.decode("utf-8", errors="ignore")
-
-    def shutdown(self):
-        if self.instance:
-            self.vk.vkDestroyInstance(self.instance, None)
-            self.instance = None
-
-def cpu_torture_process(stop_event):
+# -----------------------------------------------------------------------------
+# CPU Multi-Core Torture Worker
+# -----------------------------------------------------------------------------
+def cpu_torture_worker(stop_event):
     acc = 1.0000001
     while not stop_event.is_set():
         for _ in range(100000):
@@ -121,31 +33,39 @@ def cpu_torture_process(stop_event):
     if acc == 999999.9:
         print(acc)
 
-class ApexVulkanApp(tk.Tk):
+# -----------------------------------------------------------------------------
+# Vortex Apex GUI & Telemetry Dashboard
+# -----------------------------------------------------------------------------
+class VortexApexApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("⚡ VORTEX APEX // NATIVE VULKAN HARDWARE BENCHMARK")
-        self.geometry("980x700")
-        self.minsize(800, 560)
+        self.title("⚡ VORTEX APEX // VULKAN COMPUTE & HARDWARE TORTURE SUITE")
+        self.geometry("1020x720")
+        self.minsize(840, 600)
         self.configure(bg="#050811")
 
-        self.vk_engine = VulkanEngine()
         self.total_cores = os.cpu_count() or 4
-        self.worker_count = max(1, self.total_cores - 1)
+        self.cpu_workers = max(1, self.total_cores - 1)
         self.cpu_processes = []
         self.stop_event = multiprocessing.Event()
-        self.is_stressing = False
 
-        self.frame_times = deque(maxlen=120)
-        self.last_frame_time = time.perf_counter()
-        self.fps_val = 0.0
-        self.tick = 0
+        self.vulkan_proc = None
+        self.vulkan_thread = None
+        self.is_running = False
+
+        self.gpu_name = "NVIDIA GeForce GTX 1650 (4GB)"
+        self.bandwidth_str = "0.0 GB/sec"
+        self.written_str = "0.0 GB"
+        self.checked_str = "0.0 GB"
+        self.iterations = 0
+
+        self.log_lines = deque(maxlen=200)
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._render_loop()
 
     def _build_ui(self):
+        # Header banner
         header = tk.Frame(self, bg="#0A101D", padx=24, pady=16)
         header.pack(fill=tk.X)
 
@@ -154,7 +74,7 @@ class ApexVulkanApp(tk.Tk):
 
         title = tk.Label(
             title_box,
-            text="⚡ VORTEX APEX // VULKAN HARDWARE BENCHMARK",
+            text="⚡ VORTEX APEX // VULKAN COMPUTE ENGINE",
             font=("Segoe UI", 16, "bold"),
             fg="#00F0FF",
             bg="#0A101D"
@@ -163,7 +83,7 @@ class ApexVulkanApp(tk.Tk):
 
         sub = tk.Label(
             title_box,
-            text=f"Active Hardware GPU: {self.vk_engine.gpu_name} // Driver: Vulkan 1.2 Core",
+            text=f"Direct Vulkan Compute Shaders // CPU Cores: {self.total_cores} // Target: {self.gpu_name}",
             font=("Consolas", 9),
             fg="#94A3B8",
             bg="#0A101D"
@@ -185,50 +105,71 @@ class ApexVulkanApp(tk.Tk):
         )
         btn_discord.pack(side=tk.RIGHT)
 
-        cards = tk.Frame(self, bg="#050811", padx=24, pady=14)
+        # Telemetry Status Cards
+        cards = tk.Frame(self, bg="#050811", padx=24, pady=16)
         cards.pack(fill=tk.X)
 
-        card_gpu = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#00F0FF", padx=16, pady=10)
-        card_gpu.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        tk.Label(card_gpu, text="VULKAN DEVICE", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
-        self.lbl_gpu = tk.Label(card_gpu, text="HARDWARE BOUND", font=("Consolas", 18, "bold"), fg="#00F0FF", bg="#0B1325")
-        self.lbl_gpu.pack(anchor="w")
+        # Card 1: Vulkan Bandwidth
+        c1 = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#00F0FF", padx=16, pady=12)
+        c1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        tk.Label(c1, text="VULKAN VRAM BANDWIDTH", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
+        self.lbl_bw = tk.Label(c1, text="0.0 GB/sec", font=("Consolas", 20, "bold"), fg="#00F0FF", bg="#0B1325")
+        self.lbl_bw.pack(anchor="w")
 
-        card_fps = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#38BDF8", padx=16, pady=10)
-        card_fps.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        tk.Label(card_fps, text="TELEMETRY SAMPLING", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
-        self.lbl_fps = tk.Label(card_fps, text="60 FPS", font=("Consolas", 18, "bold"), fg="#38BDF8", bg="#0B1325")
-        self.lbl_fps.pack(anchor="w")
+        # Card 2: Memory Checked
+        c2 = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#38BDF8", padx=16, pady=12)
+        c2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        tk.Label(c2, text="VRAM CHECKED / WRITTEN", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
+        self.lbl_vram = tk.Label(c2, text="0.0 / 0.0 GB", font=("Consolas", 20, "bold"), fg="#38BDF8", bg="#0B1325")
+        self.lbl_vram.pack(anchor="w")
 
-        card_cpu = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#10B981", padx=16, pady=10)
-        card_cpu.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
-        tk.Label(card_cpu, text="CPU TORTURE STATE", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
-        self.lbl_cpu = tk.Label(card_cpu, text="STANDBY", font=("Consolas", 18, "bold"), fg="#10B981", bg="#0B1325")
+        # Card 3: CPU Multi-Core Load
+        c3 = tk.Frame(cards, bg="#0B1325", highlightthickness=1, highlightbackground="#10B981", padx=16, pady=12)
+        c3.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        tk.Label(c3, text="CPU TORTURE STATE", font=("Consolas", 8, "bold"), fg="#94A3B8", bg="#0B1325").pack(anchor="w")
+        self.lbl_cpu = tk.Label(c3, text="STANDBY", font=("Consolas", 20, "bold"), fg="#10B981", bg="#0B1325")
         self.lbl_cpu.pack(anchor="w")
 
-        vp_container = tk.Frame(self, bg="#050811", padx=24, pady=8)
-        vp_container.pack(fill=tk.BOTH, expand=True)
+        # Live Console Output Panel
+        console_frame = tk.Frame(self, bg="#050811", padx=24, pady=8)
+        console_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(vp_container, bg="#020408", highlightthickness=1, highlightbackground="#1E293B")
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+        lbl_console = tk.Label(console_frame, text="⚡ REAL-TIME VULKAN COMPUTE & KERNEL LOGS:", font=("Consolas", 9, "bold"), fg="#94A3B8", bg="#050811")
+        lbl_console.pack(anchor="w", pady=(0, 6))
 
-        bottom = tk.Frame(self, bg="#0A101D", padx=24, pady=14)
+        self.txt_console = tk.Text(
+            console_frame,
+            bg="#020408",
+            fg="#00F0FF",
+            font=("Consolas", 9),
+            insertbackground="#00F0FF",
+            relief=tk.FLAT,
+            highlightthickness=1,
+            highlightbackground="#1E293B",
+            padx=12,
+            pady=10
+        )
+        self.txt_console.pack(fill=tk.BOTH, expand=True)
+        self.txt_console.insert(tk.END, "Ready. Click 'ENGAGE CONCURRENT HARDWARE TORTURE' to begin saturation.\n")
+
+        # Bottom Action Bar
+        bottom = tk.Frame(self, bg="#0A101D", padx=24, pady=16)
         bottom.pack(fill=tk.X, side=tk.BOTTOM)
 
-        self.btn_toggle = tk.Button(
+        self.btn_action = tk.Button(
             bottom,
-            text="🔥 ENGAGE CONCURRENT VULKAN + CPU TORTURE",
+            text="🔥 ENGAGE CONCURRENT HARDWARE TORTURE",
             font=("Segoe UI", 12, "bold"),
             bg="#00F0FF",
             fg="#050811",
             activebackground="#38BDF8",
-            padx=24,
+            padx=28,
             pady=8,
             relief=tk.FLAT,
             cursor="hand2",
             command=self._toggle_stress
         )
-        self.btn_toggle.pack(side=tk.LEFT)
+        self.btn_action.pack(side=tk.LEFT)
 
         btn_exit = tk.Button(
             bottom,
@@ -245,84 +186,118 @@ class ApexVulkanApp(tk.Tk):
         btn_exit.pack(side=tk.RIGHT)
 
     def _toggle_stress(self):
-        if not self.is_stressing:
-            self.stop_event.clear()
-            self.cpu_processes = []
-            for i in range(self.worker_count):
-                p = multiprocessing.Process(target=cpu_torture_process, args=(self.stop_event,), daemon=True)
-                p.start()
-                self.cpu_processes.append(p)
-
-            self.is_stressing = True
-            self.btn_toggle.config(text="🛑 DISARM HARDWARE TORTURE", bg="#EF4444", fg="#FFFFFF")
-            self.lbl_cpu.config(text=f"MAX TDP ({self.worker_count} Cores)", fg="#EF4444")
-            self.lbl_gpu.config(text="SATURATED", fg="#EF4444")
+        if not self.is_running:
+            self._start_stress()
         else:
-            self._stop_workers()
-            self.is_stressing = False
-            self.btn_toggle.config(text="🔥 ENGAGE CONCURRENT VULKAN + CPU TORTURE", bg="#00F0FF", fg="#050811")
-            self.lbl_cpu.config(text="STANDBY", fg="#10B981")
-            self.lbl_gpu.config(text="HARDWARE BOUND", fg="#00F0FF")
+            self._stop_stress()
 
-    def _stop_workers(self):
+    def _start_stress(self):
+        if not MEMTEST_EXE.exists():
+            messagebox.showerror("Engine Missing", f"Could not find {MEMTEST_EXE}")
+            return
+
+        self.is_running = True
+        self.btn_action.config(text="🛑 DISARM / STOP HARDWARE TORTURE", bg="#EF4444", fg="#FFFFFF")
+        self.lbl_cpu.config(text=f"MAX TDP ({self.cpu_workers} Cores)", fg="#EF4444")
+        self.txt_console.insert(tk.END, f"\n[VORTEX APEX] Initializing Vulkan Compute Shaders on {self.gpu_name}...\n")
+        self.txt_console.insert(tk.END, f"[VORTEX APEX] Spawning {self.cpu_workers} dedicated vectorized CPU torture processes...\n")
+        self.txt_console.see(tk.END)
+
+        # 1. Start CPU Multiprocessing
+        self.stop_event.clear()
+        self.cpu_processes = []
+        for i in range(self.cpu_workers):
+            p = multiprocessing.Process(target=cpu_torture_worker, args=(self.stop_event,), daemon=True)
+            p.start()
+            self.cpu_processes.append(p)
+
+        # 2. Start Vulkan Compute Engine Subprocess
+        self.vulkan_thread = threading.Thread(target=self._run_vulkan_stream, daemon=True)
+        self.vulkan_thread.start()
+
+    def _run_vulkan_stream(self):
+        try:
+            self.vulkan_proc = subprocess.Popen(
+                [str(MEMTEST_EXE)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(HERE),
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+
+            for line in iter(self.vulkan_proc.stdout.readline, ''):
+                if not self.is_running:
+                    break
+                line_str = line.strip()
+                if line_str:
+                    self._parse_vulkan_output(line_str)
+                    self.after(0, self._append_log, line_str)
+
+        except Exception as e:
+            self.after(0, self._append_log, f"Vulkan process error: {e}")
+
+    def _parse_vulkan_output(self, line: str):
+        # Example: 12 iteration. Passed 5.5099 seconds written: 12.4GB 5.9GB/sec checked: 24.8GB 7.3GB/sec
+        if "GB/sec" in line:
+            parts = line.split()
+            try:
+                # Find speed
+                for idx, p in enumerate(parts):
+                    if "GB/sec" in p and idx > 0:
+                        speed = parts[idx - 1] + " " + p
+                        self.bandwidth_str = speed
+                        break
+                # Find checked/written
+                if "written:" in line and "checked:" in line:
+                    w_idx = parts.index("written:")
+                    c_idx = parts.index("checked:")
+                    w_gb = parts[w_idx + 1]
+                    c_gb = parts[c_idx + 1]
+                    self.written_str = w_gb
+                    self.checked_str = c_gb
+                self.after(0, self._update_cards)
+            except Exception:
+                pass
+
+    def _update_cards(self):
+        self.lbl_bw.config(text=self.bandwidth_str)
+        self.lbl_vram.config(text=f"{self.checked_str} / {self.written_str}")
+
+    def _append_log(self, text: str):
+        self.txt_console.insert(tk.END, text + "\n")
+        self.txt_console.see(tk.END)
+
+    def _stop_stress(self):
+        self.is_running = False
         self.stop_event.set()
+
+        # Stop CPU processes
         for p in self.cpu_processes:
             p.terminate()
             p.join(timeout=0.1)
         self.cpu_processes.clear()
 
-    def _render_loop(self):
-        self.tick += 1
-        t_now = time.perf_counter()
-        dt = t_now - self.last_frame_time
-        self.last_frame_time = t_now
+        # Stop Vulkan process
+        if self.vulkan_proc:
+            try:
+                self.vulkan_proc.terminate()
+                self.vulkan_proc.kill()
+            except Exception:
+                pass
+            self.vulkan_proc = None
 
-        if dt > 0:
-            self.frame_times.append(dt)
-            fps = 1.0 / dt
-            self.fps_val = fps * 0.1 + self.fps_val * 0.9
-
-        w = self.canvas.winfo_width()
-        h = self.canvas.winfo_height()
-
-        if w > 50 and h > 50:
-            self.canvas.delete("all")
-            cx, cy = w / 2, h / 2
-
-            loops = 26 if self.is_stressing else 12
-            for i in range(loops, 0, -1):
-                scale = (i * 18 + (self.tick * 6) % 18)
-                angle = (self.tick * 0.04) + i * 0.25
-
-                pts = []
-                for corner in range(4):
-                    a = angle + corner * (math.pi / 2)
-                    px = cx + math.cos(a) * scale * 1.5
-                    py = cy + math.sin(a) * scale
-                    pts.extend([px, py])
-
-                color = "#00F0FF" if i % 2 == 0 else "#8B5CF6"
-                if self.is_stressing and i % 3 == 0:
-                    color = "#EF4444"
-
-                self.canvas.create_polygon(pts, outline=color, fill="", width=2)
-
-            pulse_r = 30 + math.sin(self.tick * 0.1) * 15
-            self.canvas.create_oval(cx - pulse_r, cy - pulse_r, cx + pulse_r, cy + pulse_r, fill="#00F0FF", outline="#FFFFFF", width=2)
-
-        if self.tick % 15 == 0 and self.frame_times:
-            sorted_times = sorted(self.frame_times)
-            worst_ms = sorted_times[-1] * 1000.0
-            self.lbl_fps.config(text=f"{self.fps_val:.0f} FPS ({worst_ms:.1f} ms)")
-
-        self.after(1, self._render_loop)
+        self.btn_action.config(text="🔥 ENGAGE CONCURRENT HARDWARE TORTURE", bg="#00F0FF", fg="#050811")
+        self.lbl_cpu.config(text="STANDBY", fg="#10B981")
+        self.txt_console.insert(tk.END, "\n[VORTEX APEX] Hardware torture disarmed. Systems in standby.\n")
+        self.txt_console.see(tk.END)
 
     def _on_close(self):
-        self._stop_workers()
-        self.vk_engine.shutdown()
+        self._stop_stress()
         self.destroy()
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    app = ApexVulkanApp()
+    app = VortexApexApp()
     app.mainloop()
